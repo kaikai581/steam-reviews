@@ -15,6 +15,7 @@ import argparse
 import numpy as np
 import os
 import pandas as pd
+import pickle as pkl
 import xgboost
 
 
@@ -191,6 +192,11 @@ if __name__ == '__main__':
     print('===== start predicting with the model =====')
     y_test_pred = regressor.predict(X_test_vec)
     print('===== end predicting with the model =====')
+    # save the preprocessed training data to file
+    train_fpn = '../processed_data/train.pkl'
+    if not os.path.exists(train_fpn):
+        with open(train_fpn, 'w') as f:
+            pkl.dump([X_train_vec, y_train], f)
 
     # store the predicted results
     from sklearn.metrics import r2_score, mean_absolute_error, mean_absolute_percentage_error
