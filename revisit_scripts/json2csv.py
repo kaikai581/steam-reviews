@@ -22,12 +22,19 @@ if __name__ == '__main__':
 
     # select only records that have significant amount of usefulness votes
     # for now, choose 10 as the selection rule
-    df_sel = df_combined[df_combined.num_voted_helpfulness > 10]
+    df_sel = df_combined[df_combined.num_voted_helpfulness > 10].reset_index(drop=True)
+    print('Number of records with more than 10 votes:', len(df_sel))
+    print('Number of unique reviews with more than 10 votes:', df_sel.review.nunique())
+    # df_sel = df.drop_duplicates(subset='review', keep='last')
+    df_sel = df_sel[~df_sel.duplicated(subset='review', keep=False)]
+    print('Number of records with more than 10 votes after duplicated reviews removed:', \
+          len(df_sel))
 
     # Split the combined dataframe into
     # training and test samples.
     # Ref: https://www.geeksforgeeks.org/divide-a-pandas-dataframe-randomly-in-a-given-ratio/
     df_test = df_sel.sample(frac=.2, random_state=42)
+    # df_sel's index has to be reset to make the following correct.
     df_train = df_sel.drop(df_test.index)
 
     # prepare the output folder
@@ -38,3 +45,7 @@ if __name__ == '__main__':
     # Save split dataframes to file.
     df_test.to_csv(os.path.join(out_dir, 'test_meta_inc.csv'), index=False)
     df_train.to_csv(os.path.join(out_dir, 'train_meta_inc.csv'), index=False)
+
+    # print some diagnostic messages
+    print('Number of rows in training dataset:', len(df_train))
+    print('Number of rows in test dataset:', len(df_test))
