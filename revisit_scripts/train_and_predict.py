@@ -9,10 +9,13 @@ This script is directly adapted from the jupyter notebook "revisit_nlp.ipynb".
 
 from keras.preprocessing.sequence import pad_sequences
 from keras.preprocessing.text import Tokenizer
+from sklearn.ensemble import RandomForestRegressor
 
+import argparse
 import numpy as np
 import os
 import pandas as pd
+import xgboost
 
 
 # define a transformer class to engineer features
@@ -56,9 +59,25 @@ class Word2VecVectorizer(BaseEstimator, TransformerMixin):
 
 
 if __name__ == '__main__':
+    # command line options
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-m', '--model', type=int, default=0,
+        help=' \
+            0: untuned RandomForestRegressor\n \
+            1: untuned XGBoost \
+        '
+    )
+    args = parser.parse_args()
+    regr_opts = {
+        0: ('pred_rfr_untuned', RandomForestRegressor),
+        1: ('pred_xgbr_untuned', xgboost.XGBRegressor)
+    }
+
     # load train and test data
     df_train = pd.read_csv('../processed_data/train_meta_inc.csv')
     df_test = pd.read_csv('../processed_data/test_meta_inc.csv')
+    if os.path.exists('../processed_data/test_pred.csv'):
+        df_test = pd.read_csv('../processed_data/test_pred.csv')
 
     # single out written reviews and labels
     X_train, y_train = df_train['review'], df_train['found_helpful_percentage']
@@ -161,8 +180,11 @@ if __name__ == '__main__':
     X_test_vec = vectorizer.fit_transform(list(X_test))
 
     # train an untuned random forest regressor
-    from sklearn.ensemble import RandomForestRegressor
-    regressor = RandomForestRegressor()
+    pred_colname, regr = regr_opts[args.model]
+    if args.model == 0:
+        regressor = regr()
+    else:
+        regressor = regr(n_estimators=1000, max_depth=7, eta=0.1, subsample=0.7, colsample_bytree=0.8)
     print('===== start fitting the model =====')
     regressor.fit(X_train_vec, y_train)
     print('===== end fitting the model =====')
@@ -179,7 +201,7 @@ if __name__ == '__main__':
 
     # store the predicted score
     df_test_pred = df_test.copy()
-    df_test_pred['pred_rfr_untuned'] = y_test_pred
+    df_test_pred[pred_colname] = y_test_pred
 
     # save to disk
     out_dir = '../processed_data'
