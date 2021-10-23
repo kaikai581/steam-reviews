@@ -10,12 +10,15 @@ This script is directly adapted from the jupyter notebook "revisit_nlp.ipynb".
 from keras.preprocessing.sequence import pad_sequences
 from keras.preprocessing.text import Tokenizer
 from sklearn.ensemble import RandomForestRegressor
+from sklearn.kernel_ridge import KernelRidge
+from sklearn.linear_model import LinearRegression
 
 import argparse
 import numpy as np
 import os
 import pandas as pd
 import pickle as pkl
+import smogn
 import xgboost
 
 
@@ -68,10 +71,14 @@ if __name__ == '__main__':
             1: untuned XGBoost \
         '
     )
+    parser.add_argument('--imbalanced', action='store_true')
+    parser.add_argument('--load_weight', action='store_true')
     args = parser.parse_args()
     regr_opts = {
         0: ('pred_rfr_untuned', RandomForestRegressor),
-        1: ('pred_xgbr_untuned', xgboost.XGBRegressor)
+        1: ('pred_xgbr_untuned', xgboost.XGBRegressor),
+        2: ('pred_krr_untuned', KernelRidge),
+        3: ('pred_linr_untuned', LinearRegression)
     }
 
     # load train and test data
@@ -91,7 +98,7 @@ if __name__ == '__main__':
     # ref: https://heartbeat.comet.ml/text-classification-using-long-short-term-memory-glove-embeddings-6894abb730e1
     vocab_size = 1000
     oov_token = '<OOV>'
-    max_length = 100
+    max_length = 50
     padding_type = 'post'
     truncation_type = 'post'
 
@@ -179,24 +186,52 @@ if __name__ == '__main__':
     # Get the review embeddings for the train dataset
     X_train_vec = vectorizer.fit_transform(list(X_train))
     X_test_vec = vectorizer.fit_transform(list(X_test))
+    if args.imbalanced:
+        df_temp = pd.DataFrame(X_train_vec)
+        df_temp['label'] = y_train
+        df_smogn = smogn.smoter(
+            data = df_temp, 
+            y = 'label'
+        )
+        y_train = df_smogn.label
+        X_train_vec = df_smogn.drop(columns='label')
 
     # train an untuned random forest regressor
     pred_colname, regr = regr_opts[args.model]
     if args.model == 0:
+        # regressor = regr(bootstrap=True, max_depth=10, max_features='sqrt', min_samples_leaf=4,
+        #                  min_samples_split=2, n_estimators=400)
         regressor = regr()
-    else:
+    elif args.model == 1:
         regressor = regr(n_estimators=1000, max_depth=7, eta=0.1, subsample=0.7, colsample_bytree=0.8)
+    elif args.model == 2:
+        regressor = regr(alpha=1)
+    elif args.model == 3:
+        regressor = regr()
+    has_weight_file = os.path.exists('../processed_data/train_sample_weight.csv') and args.load_weight
+    if has_weight_file:
+        df_weight = pd.read_csv('../processed_data/train_sample_weight.csv')
     print('===== start fitting the model =====')
-    regressor.fit(X_train_vec, y_train)
+    if not has_weight_file:
+        regressor.fit(X_train_vec, y_train)
+    else:
+        regressor.fit(X_train_vec, y_train, sample_weight=df_weight.sample_weight)
     print('===== end fitting the model =====')
     print('===== start predicting with the model =====')
     y_test_pred = regressor.predict(X_test_vec)
     print('===== end predicting with the model =====')
     # save the preprocessed training data to file
     train_fpn = '../processed_data/train.pkl'
-    if not os.path.exists(train_fpn):
-        with open(train_fpn, 'w') as f:
-            pkl.dump([X_train_vec, y_train], f)
+    if args.imbalanced:
+        train_fpn = '../processed_data/train_smogn.pkl'
+    with open(train_fpn, 'wb') as f:
+        pkl.dump([X_train_vec, y_train], f)
+    '''
+    To load the pickled data, do the following.
+    ref: https://stackoverflow.com/questions/44466993/python-how-to-save-training-datasets
+    with open(train_fpn, 'rb') as f:
+        X_train_vec, y_train = pkl.load(f)
+    '''
 
     # store the predicted results
     from sklearn.metrics import r2_score, mean_absolute_error, mean_absolute_percentage_error
