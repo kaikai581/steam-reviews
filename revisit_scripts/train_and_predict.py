@@ -19,6 +19,7 @@ import os
 import pandas as pd
 import pickle as pkl
 import smogn
+import sys
 import xgboost
 
 
@@ -65,6 +66,7 @@ class Word2VecVectorizer(BaseEstimator, TransformerMixin):
 if __name__ == '__main__':
     # command line options
     parser = argparse.ArgumentParser()
+    parser.add_argument('-d', '--glove_dim', type=int, default=50)
     parser.add_argument('-m', '--model', type=int, default=0,
         help=' \
             0: untuned RandomForestRegressor\n \
@@ -80,6 +82,10 @@ if __name__ == '__main__':
         2: ('pred_krr_untuned', KernelRidge),
         3: ('pred_linr_untuned', LinearRegression)
     }
+
+    if not args.glove_dim in [50, 100, 200, 300]:
+        print('GloVe dimension must be one in {50, 100, 200, 300}.')
+        sys.exit(-1)
 
     # load train and test data
     df_train = pd.read_csv('../processed_data/train_meta_inc.csv')
@@ -98,7 +104,7 @@ if __name__ == '__main__':
     # ref: https://heartbeat.comet.ml/text-classification-using-long-short-term-memory-glove-embeddings-6894abb730e1
     vocab_size = 1000
     oov_token = '<OOV>'
-    max_length = 50
+    max_length = args.glove_dim
     padding_type = 'post'
     truncation_type = 'post'
 
@@ -203,7 +209,31 @@ if __name__ == '__main__':
         #                  min_samples_split=2, n_estimators=400)
         regressor = regr()
     elif args.model == 1:
-        regressor = regr(n_estimators=1000, max_depth=7, eta=0.1, subsample=0.7, colsample_bytree=0.8)
+        '''
+        dim=50
+        Best parameters found with the xgb_hp_tuning.py script:
+        Fitting 5 folds for each of 288 candidates, totalling 1440 fits
+        {'colsample_bytree': 0.5,
+        'learning_rate': 0.01,
+        'max_depth': 3,
+        'min_child_weight': 1,
+        'n_estimators': 500,
+        'objective': 'reg:squarederror',
+        'subsample': 0.5}
+        '''
+        '''
+        dim=300
+        Best parameters found with the xgb_hp_tuning.py script:
+        Fitting 5 folds for each of 288 candidates, totalling 1440 fits
+        {'colsample_bytree': 0.7,
+        'learning_rate': 0.01,
+        'max_depth': 3,
+        'min_child_weight': 1,
+        'n_estimators': 500,
+        'objective': 'reg:squarederror',
+        'subsample': 0.5}
+        '''
+        regressor = regr(n_estimators=500, max_depth=3, colsample_bytree=0.7, learning_rate=0.01, min_child_weight=1, subsample=0.7)
     elif args.model == 2:
         regressor = regr(alpha=1)
     elif args.model == 3:
@@ -221,7 +251,7 @@ if __name__ == '__main__':
     y_test_pred = regressor.predict(X_test_vec)
     print('===== end predicting with the model =====')
     # save the preprocessed training data to file
-    train_fpn = '../processed_data/train.pkl'
+    train_fpn = '../processed_data/train_glove{}d.pkl'.format(args.glove_dim)
     if args.imbalanced:
         train_fpn = '../processed_data/train_smogn.pkl'
     with open(train_fpn, 'wb') as f:
@@ -232,6 +262,9 @@ if __name__ == '__main__':
     with open(train_fpn, 'rb') as f:
         X_train_vec, y_train = pkl.load(f)
     '''
+    test_fpn = '../processed_data/test_glove{}d.pkl'.format(args.glove_dim)
+    with open(test_fpn, 'wb') as f:
+        pkl.dump([X_test_vec, y_test], f)
 
     # store the predicted results
     from sklearn.metrics import r2_score, mean_absolute_error, mean_absolute_percentage_error
@@ -248,4 +281,4 @@ if __name__ == '__main__':
     out_dir = '../processed_data'
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
-    df_test_pred.to_csv(os.path.join(out_dir, 'test_pred.csv'), index=False)
+    df_test_pred.to_csv(os.path.join(out_dir, 'test_pred_glove{}d.csv'.format(args.glove_dim)), index=False)
